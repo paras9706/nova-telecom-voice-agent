@@ -1,61 +1,82 @@
-# Nova Voice Agent – evaluation harness
-# Runs every scenario against a system prompt and saves the replies to a CSV.
-# Use in Google Colab: paste each CELL into its own code cell and run them in order.
+"""
+Nova voice agent - evaluation script.
 
-# ===== CELL 1: install =====
-# !pip install -q google-genai
+Runs every test scenario against one version of the system prompt and saves
+the agent's replies to a CSV file, ready for scoring with eval/rubric.md.
 
-# ===== CELL 2: settings =====
-API_KEY = "PASTE_YOUR_KEY_HERE"   # from aistudio.google.com -> Get API key. Never share it or upload it to GitHub.
-MODEL = "gemini-3.8-flash"        # same model you used in AI Studio
-VERSION = "v1"                    # change to v2 / v3 later
-PROMPT_FILE = f"{VERSION}_system_prompt.md"
-SCENARIO_FILE = "scenarios.csv"   # your Google Sheet downloaded as CSV (File -> Download -> .csv)
+Run from the repository root:  python eval/run_eval.py
+Requires:  pip install google-genai  and a Gemini API key.
+"""
 
-# ===== CELL 3: run all scenarios =====
-import csv, time, re
+import csv
+import os
+import re
+import time
+
 from google import genai
 from google.genai import types
+
+# ---------- Settings ----------
+API_KEY = os.environ.get("GEMINI_API_KEY", "PASTE_YOUR_KEY_HERE")  # never commit a real key
+MODEL = "gemini-3.8-flash"
+VERSION = "v3"                                   # which prompt to test: v1, v2 or v3
+PROMPT_FILE = f"prompts/{VERSION}_system_prompt.md"
+SCENARIO_FILE = "eval/scenarios.csv"
+OUT_FILE = f"results_{VERSION}.csv"
 
 client = genai.Client(api_key=API_KEY)
 system_prompt = open(PROMPT_FILE, encoding="utf-8").read()
 
+
 def turns(text):
-    # "Turn 1: ... | Turn 2 (interrupting): ..." -> ["...", "..."]
+    """Split a multi-turn scenario into separate caller messages.
+
+    "Turn 1: UAE pack please. | Turn 2: Sorry, I meant USA."
+    -> ["UAE pack please.", "Sorry, I meant USA."]
+    """
     if text.strip().lower().startswith("turn 1"):
         parts = text.split("|")
         return [re.sub(r"^\s*Turn \d+[^:]*:\s*", "", p).strip() for p in parts]
     return [text.strip()]
 
+
 rows = list(csv.DictReader(open(SCENARIO_FILE, encoding="utf-8")))
 out = []
+
 for r in rows:
     sid, caller = r["ID"], r["Caller input (simulated speech transcript)"]
     if not sid or not caller:
         continue
-    chat = client.chats.create(model=MODEL, config=types.GenerateContentConfig(system_instruction=system_prompt))
+
+    # A fresh chat for every scenario, so tests don't affect each other.
+    chat = client.chats.create(
+        model=MODEL,
+        config=types.GenerateContentConfig(system_instruction=system_prompt),
+    )
+
     replies = []
     for t in turns(caller):
-        for attempt in range(3):
+        for attempt in range(3):              # retry up to 3 times on API errors
             try:
                 replies.append(chat.send_message(t).text.strip())
                 break
             except Exception as e:
                 print(sid, "retrying:", e)
                 time.sleep(20)
-        time.sleep(5)  # stay under free-tier rate limits
-    final = replies[-1] if replies else "ERROR"
-    earlier = " || ".join(replies[:-1])
-    out.append({"ID": sid, "Category": r["Category"], "Caller input": caller,
-                "Expected behaviour": r["Expected behaviour"],
-                f"{VERSION} earlier turn reply": earlier, f"{VERSION} final reply": final})
+        time.sleep(5)                         # stay under rate limits
+
+    out.append({
+        "ID": sid,
+        "Category": r["Category"],
+        "Caller input": caller,
+        "Expected behaviour": r["Expected behaviour"],
+        "Earlier turn reply": " || ".join(replies[:-1]),
+        "Final reply": replies[-1] if replies else "ERROR",
+    })
     print(f"{sid} done")
 
-out_file = f"results_{VERSION}.csv"
-with open(out_file, "w", newline="", encoding="utf-8") as f:
+with open(OUT_FILE, "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=list(out[0].keys()))
-    w.writeheader(); w.writerows(out)
-print("Saved", out_file, "-", len(out), "scenarios")
-
-# ===== CELL 4: download the results =====
-# from google.colab import files; files.download(out_file)
+    w.writeheader()
+    w.writerows(out)
+print(f"Saved {OUT_FILE} - {len(out)} scenarios")
