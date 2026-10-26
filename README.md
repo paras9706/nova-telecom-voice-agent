@@ -4,6 +4,8 @@
 
 > Nova Telecom is a fictional operator. All plans and prices are made up for this project.
 
+**Results at a glance:** critical pass rate rose from **77.5% (v1) to 97.5% (v2)**, and spoken-style compliance from **25% to 100%**. Regression testing caught a new failure caused by the v2 fix; v3 fixed it (7/7 targeted re-tests passed).
+
 ## Why this problem
 Telecom operators handle huge volumes of repetitive calls (plans, balance, recharge, roaming). Voice AI agents can resolve many of these, but only if they handle speech-recognition errors, code-mixed language, interruptions and escalation safely.
 
@@ -11,6 +13,7 @@ Telecom operators handle huge volumes of repetitive calls (plans, balance, recha
 - `prompts/` – system prompt versions (v1 → v3) with a changelog
 - `eval/scenarios.csv` – 40 test scenarios across 8 categories
 - `eval/rubric.md` – 6-criterion scoring rubric (3 critical)
+- `eval/run_eval.py` – optional script to run all scenarios through the Gemini API (written with AI help; final runs were done manually in AI Studio because of the free-tier limit of 20 requests/day)
 - `results/` – scored results and failure analysis
 
 ## Test categories
